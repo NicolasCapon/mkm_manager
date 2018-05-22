@@ -1,0 +1,2 @@
+Try to build DB with this mkm function:
+Product List (File)	GET	X	X	X	Returns a gzipped CSV file with all relevant products available at Cardmarket.
