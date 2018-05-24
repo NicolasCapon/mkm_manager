@@ -141,11 +141,18 @@ class mkm_seller_model():
         
     def get_all_product(self):
         url = "/productlist"
-        file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test.csv")
         content = self.get_content(url)
+        file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test.csv")
         data = gzip.decompress(base64.b64decode(content["productsfile"]))
         with open(file_path, 'wb') as outfile:
             outfile.write(data)
+        return data
+    
+    def get_all_expansions(self):
+        url = "/games/1/expansions"
+        content = self.get_content(url)
+        self.write(content)
+        return content
         
     def get_shopping_cart(self):
         url = "/shoppingcart"
@@ -194,8 +201,18 @@ class mkm_seller_model():
                                                     category text,\
                                                     expansion_id text,\
                                                     metacard_id text,\
-                                                    date_added text)"
+                                                    date_added text,\
+                                                    FOREIGN KEY (expansion_id) REFERENCES expansions(expansion_id))"
         c.execute(req)
+        
+        req = "CREATE TABLE IF NOT EXISTS expansions (expansion_id text PRIMARY KEY,\
+                                                      name text,\
+                                                      abbreviation text,\
+                                                      icon text,\
+                                                      releaseDate text,\
+                                                      isReleased text)"
+        c.execute(req)
+        
         conn.commit()
         conn.close()
     
@@ -207,6 +224,7 @@ class mkm_seller_model():
         conn = sqlite3.connect(database)
         c = conn.cursor()
         
+        # Update products table
         to_db = [(row['idProduct'], row['Name'], row["Category ID"], row["Category"], row["Expansion ID"], row["Metacard ID"], row["Date Added"]) for index, row in dataframe.iterrows() if row["Category"] == "Magic Single"]
         req = "INSERT INTO products(product_id, name, category_id, category, expansion_id, metacard_id, date_added) \
               VALUES (?,?,?,?,?,?,?);"
@@ -218,8 +236,19 @@ class mkm_seller_model():
             logging.info("An SQL error [{}] occurred.".format(e))
             # conn.rollback()
         
+        # Update expansions table
+        expansions = self.get_all_expansions()["expansion"]
+        to_db = [(e["idExpansion"], e["enName"], e["abbreviation"], e["icon"], e["releaseDate"], e["isReleased"]) for e in expansions]
+        req = "INSERT INTO expansions(expansion_id, name, code, icon, releaseDate, isReleased) \
+              VALUES (?,?,?,?,?,?);"
+        
+        try:
+            c.executemany(req, to_db)
+            conn.commit()
+        except sqlite3.Error as e:
+            logging.info("An SQL error [{}] occurred.".format(e))
+
         conn.close()
 
 # mkm = mkm_seller_model()
-# mkm.update_DB()
 # print("END")
