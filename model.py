@@ -1,11 +1,15 @@
 #!/usr/bin/python3
+import io
 import os
+import gzip
 import json
 import requests
 import urllib
 import config
 import time
 import logging
+import pandas
+import sqlite3
 import base64, hmac, hashlib
 from lxml import etree
 from requests_oauthlib import OAuth1
@@ -13,6 +17,8 @@ from requests_oauthlib import OAuth1
 class mkm_seller_model():
     
     def __init__(self):
+        log_file = os.path.join(os.path.dirname(os.path.realpath(__file__)), "console.log")
+        logging.basicConfig(format='%(asctime)s %(message)s', filename=log_file, level=logging.DEBUG)
         return None
 
     def write(self, content):
@@ -25,11 +31,15 @@ class mkm_seller_model():
            https://www.mkmapi.eu/ws/documentation/API_2.0:Main_Page
            Formats : xml or json"""
         
-        url = "https://api.cardmarket.com/ws/v2.0/output."+ format + p_url
+        if format: url = "https://api.cardmarket.com/ws/v2.0/output."+ format + p_url
+        else: url = "https://api.cardmarket.com/ws/v2.0" + p_url
+        
         r = self.request_API(url, **kwargs)
         
-        if r.status_code == 200:
+        if format == "json" and r.status_code == 200:
             content = json.loads(r.content.decode('utf-8'))
+        elif not format and r.status_code == 200:
+            content = r.content
         else: 
             logging.info("[{}] {}".format(r.status_code, url))
             return False
@@ -128,7 +138,15 @@ class mkm_seller_model():
         for article in content["article"]:
             prices.append(article["price"])
         return prices
-
+        
+    def get_all_product(self):
+        url = "/productlist"
+        file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test.csv")
+        content = self.get_content(url)
+        data = gzip.decompress(base64.b64decode(content["productsfile"]))
+        with open(file_path, 'wb') as outfile:
+            outfile.write(data)
+        
     def get_shopping_cart(self):
         url = "/shoppingcart"
         content = get_content(url)
@@ -164,3 +182,44 @@ class mkm_seller_model():
                              "extra":cells[5]})
 
         return data
+    def construct_DB(self):
+        database = os.path.join(os.path.dirname(os.path.realpath(__file__)), "mkm.db")
+        conn = sqlite3.connect(database)
+        c = conn.cursor()
+        # req = "DROP TABLE IF EXISTS products;"
+        # c.execute(req)
+        req = "CREATE TABLE IF NOT EXISTS products (product_id text PRIMARY KEY,\
+                                                    name text,\
+                                                    category_id text,\
+                                                    category text,\
+                                                    expansion_id text,\
+                                                    metacard_id text,\
+                                                    date_added text)"
+        c.execute(req)
+        conn.commit()
+        conn.close()
+    
+    def update_DB(self):
+        file_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "test.csv")
+        dataframe = pandas.read_csv(file_path, sep=",")
+        
+        database = os.path.join(os.path.dirname(os.path.realpath(__file__)), "mkm.db")
+        conn = sqlite3.connect(database)
+        c = conn.cursor()
+        
+        to_db = [(row['idProduct'], row['Name'], row["Category ID"], row["Category"], row["Expansion ID"], row["Metacard ID"], row["Date Added"]) for index, row in dataframe.iterrows() if row["Category"] == "Magic Single"]
+        req = "INSERT INTO products(product_id, name, category_id, category, expansion_id, metacard_id, date_added) \
+              VALUES (?,?,?,?,?,?,?);"
+        
+        try:
+            c.executemany(req, to_db)
+            conn.commit()
+        except sqlite3.Error as e:
+            logging.info("An SQL error [{}] occurred.".format(e))
+            # conn.rollback()
+        
+        conn.close()
+
+# mkm = mkm_seller_model()
+# mkm.update_DB()
+# print("END")
